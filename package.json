@@ -1,0 +1,25 @@
+{
+  "name": "lynechat",
+  "version": "0.2.0",
+  "description": "E-mailing 100 % local avec Amazon SES : contacts, campagnes, automatisations, formulaires et statistiques.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node test/backend.test.js",
+    "demo": "LYNECHAT_FAKE_AWS=1 electron .",
+    "web": "node server/server.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@aws-sdk/client-cloudformation": "^3.1156.0",
+    "@aws-sdk/client-sesv2": "^3.1156.0",
+    "@aws-sdk/client-sqs": "^3.1156.0"
+  },
+  "devDependencies": {
+    "electron": "^44.8.0"
+  },
+  "productName": "Lynechat",
+  "engines": {
+    "node": ">=22.13"
+  }
+}

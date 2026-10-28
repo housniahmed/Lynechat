@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lynechat — e-mailing</title>
+  <link rel="icon" href="assets/icon.png" />
+  <link rel="stylesheet" href="vendor/fonts/inter/400.css" />
+  <link rel="stylesheet" href="vendor/fonts/inter/600.css" />
+  <link rel="stylesheet" href="vendor/fonts/inter/700.css" />
+  <link rel="stylesheet" href="vendor/fonts/cairo/400.css" />
+  <link rel="stylesheet" href="vendor/fonts/cairo/700.css" />
+  <link rel="stylesheet" href="css/app.css" />
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand"><img src="assets/icon.png" alt="" /><span>Lynechat</span></div>
+    <nav id="nav">
+      <a href="#/" data-route="dashboard"><i>◎</i>Tableau de bord</a>
+      <a href="#/contacts" data-route="contacts"><i>☺</i>Contacts</a>
+      <a href="#/campaigns" data-route="campaigns"><i>✉</i>Campagnes</a>
+      <a href="#/automations" data-route="automations"><i>↻</i>Automatisations</a>
+      <a href="#/forms" data-route="forms"><i>▤</i>Formulaires et pages</a>
+      <a href="#/templates" data-route="templates"><i>❏</i>Modèles d’e-mail</a>
+    </nav>
+    <div class="side-bottom">
+      <a href="#/settings" data-route="settings"><i>⚙</i>Paramètres</a>
+      <div id="connStatus" class="conn"></div>
+      <button id="logoutBtn" class="logout" hidden>Se déconnecter</button>
+    </div>
+  </aside>
+  <main id="view"></main>
+  <div id="toasts"></div>
+  <script src="js/bridge.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

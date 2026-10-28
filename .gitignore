@@ -1,0 +1,10 @@
+node_modules/
+dist/
+out/
+*.log
+.env
+secrets.json
+*.sqlite
+*.sqlite-*
+*.pem
+*.key
