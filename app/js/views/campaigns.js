@@ -1,4 +1,4 @@
-import { api, el, toast, run, modal, confirmBox, promptBox, fmtDate, num, pct, campaignBadge } from '../ui.js';
+import { api, el, toast, run, modal, confirmBox, promptBox, fmtDate, num, pct, campaignBadge, exportReport } from '../ui.js';
 import { openEditor, chooseStarter, previewHtml, resolveAssets, resolveSrc } from '../editor.js';
 import { renderEmail } from '../email-html.js';
 
@@ -199,7 +199,8 @@ export async function reportView(page, cid) {
   const badge = el('span', {}, campaignBadge(c.status));
   page.append(el('div', { class: 'page-head' }, el('a', { class: 'btn ghost', href: '#/campaigns' }, '←'), el('div', {}, el('h1', {}, c.name), el('div', { class: 'sub', dir: 'auto' }, c.subject)), badge, el('span', { class: 'spacer' }),
     el('button', { class: 'btn', onclick: async () => { await resolveAssets(c.design); previewHtml(renderEmail(c.design, { resolve: resolveSrc })); } }, 'Voir l’e-mail'),
-    el('button', { class: 'btn', onclick: async () => { location.hash = `#/campaigns/${await api('duplicateCampaign', cid)}`; } }, 'Dupliquer')), body);
+    el('button', { class: 'btn', onclick: async () => { location.hash = `#/campaigns/${await api('duplicateCampaign', cid)}`; } }, 'Dupliquer'),
+    el('button', { class: 'btn primary', onclick: (e) => run(e.target, () => exportReport('campaign', { campaignId: cid })) }, 'Rapport PDF')), body);
 
   const draw = async () => {
     const [st, cur] = await Promise.all([api('campaignStats', cid), api('campaign', cid)]);

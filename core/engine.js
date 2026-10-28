@@ -20,8 +20,11 @@ function htmlToText(html) {
 const escHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 class Engine {
-  constructor({ db, model, getAws, notify }) {
+  constructor({ db, gdb, model, getAws, notify, wsId = 'main', router = null }) {
     this.db = db;
+    this.gdb = gdb || db; // réglages communs à tous les espaces (AWS, infrastructure, secret)
+    this.wsId = wsId;
+    this.router = router;
     this.model = model;
     this.getAws = getAws;
     this.notify = notify || (() => {});
@@ -31,16 +34,17 @@ class Engine {
     this.polling = false;
   }
 
-  get cfg() { return this.db.getSetting('aws', {}); }
-  get infra() { return this.db.getSetting('infra', null); }
+  get cfg() { return this.gdb.getSetting('aws', {}); }
+  get infra() { return this.gdb.getSetting('infra', null); }
   get company() { return this.db.getSetting('company', {}); }
 
-  sign(s) { return crypto.createHmac('sha256', this.db.getSetting('secret')).update(s).digest('base64url').slice(0, 22); }
+  sign(s) { return crypto.createHmac('sha256', this.gdb.getSetting('secret')).update(s).digest('base64url').slice(0, 22); }
 
   unsubscribeUrl(email, campaign, lang = 'fr') {
     const infra = this.infra;
     if (!infra?.publicUrl) return '';
-    const e = b64u(email), c = campaign || '-';
+    // Hors espace principal, l'identifiant de l'espace voyage dans le paramètre c (signé) : « ws~campagne ».
+    const e = b64u(email), c = this.wsId === 'main' ? campaign || '-' : `${this.wsId}~${campaign || '-'}`;
     return `${infra.publicUrl}u?e=${e}&c=${encodeURIComponent(c)}&l=${lang === 'ar' ? 'ar' : 'fr'}&s=${this.sign(`u|${e}|${c}`)}`;
   }
 
@@ -90,7 +94,8 @@ class Engine {
     const from = fromName ? `${encodeName(fromName)} <${fromEmail}>` : fromEmail;
     return {
       from, to: contact.email, replyTo: replyTo || undefined, subject: this.merge(subject, contact, {}, false),
-      html: body, text: htmlToText(body), headers, attachments, configSet: this.infra?.configSet, tags,
+      html: body, text: htmlToText(body), headers, attachments, configSet: this.infra?.configSet,
+      tags: this.wsId === 'main' ? tags : { ...tags, ws: this.wsId },
     };
   }
 
@@ -160,7 +165,7 @@ class Engine {
     try {
       const aws = this.getAws();
       const acct = await aws.account().catch(() => ({ maxRate: 1 }));
-      const userRate = Number(this.db.getSetting('sendRate', 0)) || Infinity;
+      const userRate = Number(this.gdb.getSetting('sendRate', 0)) || Infinity;
       const rate = Math.max(1, Math.min(acct.maxRate || 1, userRate));
       const gap = 1000 / rate;
       const c = this.campaign(cid);
@@ -210,7 +215,7 @@ class Engine {
     const msgs = await aws.receive(infra.inboxUrl);
     const done = [];
     for (const m of msgs) {
-      try { this.handleMessage(JSON.parse(m.body)); } catch (e) { console.error('Événement ignoré', e.message); }
+      try { (this.router || this).handleMessage(JSON.parse(m.body)); } catch (e) { console.error('Événement ignoré', e.message); }
       done.push(m.handle);
     }
     await aws.ack(infra.inboxUrl, done);
@@ -219,6 +224,8 @@ class Engine {
   }
 
   startPolling() {
+    // Avec plusieurs espaces, un seul moteur (celui de l'espace principal) lit la file AWS et répartit les événements.
+    if (this.router?.primary && this.router.primary !== this) return this.router.primary.startPolling();
     if (this.polling) return;
     this.polling = true;
     const loop = async () => {
@@ -447,8 +454,8 @@ class Engine {
     }
   }
 
-  start() {
-    this.startPolling();
+  start({ poll = true } = {}) {
+    if (poll) this.startPolling();
     // Reprise des campagnes interrompues (fermeture de l'application pendant un envoi).
     for (const c of this.db.all("SELECT id FROM campaigns WHERE status='sending'")) this.runCampaign(c.id);
     const tick = async () => {

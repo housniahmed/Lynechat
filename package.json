@@ -1,6 +1,6 @@
 {
   "name": "lynechat",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "E-mailing 100 % local avec Amazon SES : contacts, campagnes, automatisations, formulaires et statistiques.",
   "main": "main.js",
   "scripts": {

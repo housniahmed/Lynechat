@@ -62,6 +62,13 @@ Le bouton **Paramètres → Installer l’infrastructure** crée tout cela dans 
 
 **Non testé :** aucun envoi ni déploiement n’a été fait sur un vrai compte AWS, faute d’identifiants. Les noms d’API, le format des événements SES et les permissions Lambda viennent de la documentation AWS et des définitions du SDK, mais le premier déploiement réel reste à vérifier. L’installateur Windows a seulement été testé sous Wine.
 
+## Espaces clients et rapports PDF (v0.3)
+
+- **Espaces clients** : un espace par client ou par marque (menu en haut de la barre latérale). Chaque espace a sa propre base (`workspaces/<id>.sqlite`) : contacts, listes, tags, segments, modèles, campagnes, automatisations, formulaires, expéditeur et informations légales. Le compte AWS, l'infrastructure d'envoi et les domaines vérifiés sont communs.
+- Les événements AWS sont rangés dans le bon espace : étiquette SES `ws` sur chaque envoi, identifiant de l'espace dans le paramètre signé `c` du lien de désinscription (`ws~campagne`), identifiant de formulaire pour les inscriptions. Les liens déjà envoyés depuis l'espace principal restent valables. Aucune mise à jour de l'infrastructure AWS n'est nécessaire.
+- Supprimer un espace déplace sa base dans `workspaces/corbeille` au lieu de l'effacer.
+- **Rapports PDF** (menu « Rapports PDF » ou bouton sur les statistiques d'une campagne) : rapport de campagne ou d'activité sur une période, avec le nom, le logo et la couleur de l'agence (« Espaces clients → Votre agence ») et le logo du client. Bureau : PDF A4 enregistré directement. Version serveur : page imprimable (« Enregistrer au format PDF »).
+
 ## Version serveur (navigateur)
 
 Lynechat peut aussi tourner sur un serveur Linux, accessible depuis n’importe quel navigateur avec un mot de passe, et fonctionner 24 h/24. Voir `DEPLOY-ORACLE.md` (guide en anglais, Oracle Cloud « Always Free ») et `deploy/install.sh`.

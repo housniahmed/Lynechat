@@ -3,11 +3,8 @@ const { app, BrowserWindow, protocol, net, ipcMain, safeStorage, shell, dialog }
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
-const { Db } = require('./core/db');
-const { Model } = require('./core/model');
-const { Engine } = require('./core/engine');
+const { Hub } = require('./core/hub');
 const { makeAws } = require('./core/aws');
-const { makeApi } = require('./core/api');
 
 const ROOT = path.join(__dirname, 'app');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.woff2': 'font/woff2', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
@@ -16,7 +13,7 @@ protocol.registerSchemesAsPrivileged([{ scheme: 'app', privileges: { standard: t
 if (process.platform === 'win32') app.setAppUserModelId('ma.lynechat.app');
 
 let win = null;
-let db, model, engine, api, awsClient = null;
+let hub, db, awsClient = null;
 
 function credsFromDb() {
   const c = db.getSetting('aws', null);
@@ -72,10 +69,8 @@ function createWindow() {
 app.whenReady().then(() => {
   const dataDir = process.env.LYNECHAT_DATA_DIR || app.getPath('userData');
   fs.mkdirSync(dataDir, { recursive: true });
-  db = new Db(path.join(dataDir, 'lynechat.sqlite'));
-  model = new Model(db);
-  engine = new Engine({ db, model, getAws, notify });
-  api = makeApi({ db, model, engine, getAws, setCreds, getCredsInfo });
+  hub = new Hub({ dataDir, getAws, notify, setCreds, getCredsInfo });
+  db = hub.main; // réglages communs (clés AWS chiffrées, infrastructure)
 
   protocol.handle('app', async (request) => {
     const url = new URL(request.url);
@@ -89,11 +84,23 @@ app.whenReady().then(() => {
     } catch { return new Response('Not found', { status: 404 }); }
   });
 
-  ipcMain.handle('lynechat:call', async (e, method, args) => {
-    const fn = api[method];
-    if (typeof fn !== 'function') throw new Error(`Méthode inconnue : ${method}`);
-    if (method === 'deployInfra') return fn((st) => notify('deploy', st));
-    return fn(...(args || []));
+  ipcMain.handle('lynechat:call', async (e, method, args) => hub.call(method, args || [], { onStatus: (st) => notify('deploy', st) }));
+  // Rapport PDF : mise en page HTML → PDF A4 dans une fenêtre invisible (sans JavaScript), puis « Enregistrer sous ».
+  ipcMain.handle('lynechat:exportReport', async (e, kind, arg) => {
+    const { html, name } = hub.hubApi.reportHtml(kind, arg || {});
+    // LYNECHAT_TEST_SAVE_DIR : tests automatiques uniquement (pas de boîte de dialogue).
+    const r = process.env.LYNECHAT_TEST_SAVE_DIR ? { filePath: path.join(process.env.LYNECHAT_TEST_SAVE_DIR, name) } : await dialog.showSaveDialog(win, { defaultPath: name, filters: [{ name: 'PDF', extensions: ['pdf'] }] });
+    if (r.canceled || !r.filePath) return null;
+    const pdfWin = new BrowserWindow({ show: false, width: 900, height: 1200, webPreferences: { javascript: false, sandbox: true, contextIsolation: true } });
+    const tmp = path.join(app.getPath('temp'), `lynechat-rapport-${process.pid}-${Date.now()}.html`);
+    fs.writeFileSync(tmp, html);
+    try {
+      await pdfWin.loadFile(tmp);
+      const pdf = await pdfWin.webContents.printToPDF({ printBackground: true, preferCSSPageSize: true, pageSize: 'A4' });
+      fs.writeFileSync(r.filePath, pdf);
+    } finally { pdfWin.destroy(); fs.rmSync(tmp, { force: true }); }
+    if (arg?.open !== false && !process.env.LYNECHAT_TEST_SAVE_DIR) shell.openPath(r.filePath);
+    return r.filePath;
   });
   ipcMain.handle('lynechat:saveFile', async (e, { name, content, filters }) => {
     const r = await dialog.showSaveDialog(win, { defaultPath: name, filters });
@@ -104,8 +111,8 @@ app.whenReady().then(() => {
   ipcMain.handle('lynechat:openExternal', (e, url) => { if (/^https:\/\//.test(url)) shell.openExternal(url); });
 
   createWindow();
-  engine.start();
+  hub.start();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
-app.on('window-all-closed', () => { engine?.stop(); if (process.platform !== 'darwin') app.quit(); });
+app.on('window-all-closed', () => { hub?.stop(); if (process.platform !== 'darwin') app.quit(); });

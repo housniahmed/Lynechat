@@ -5,11 +5,8 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { Db } = require('../core/db');
-const { Model } = require('../core/model');
-const { Engine } = require('../core/engine');
+const { Hub } = require('../core/hub');
 const { makeAws } = require('../core/aws');
-const { makeApi } = require('../core/api');
 
 const ROOT = path.join(__dirname, '..', 'app');
 const DATA = process.env.LYNECHAT_DATA_DIR || path.join(__dirname, '..', 'data');
@@ -61,17 +58,13 @@ if (process.argv.includes('--set-password')) {
 }
 
 // ---------- moteur ----------
-const db = new Db(path.join(DATA, 'lynechat.sqlite'));
-db.db.exec('CREATE TABLE IF NOT EXISTS web_sessions (id TEXT PRIMARY KEY, expires TEXT, created TEXT, ip TEXT)');
-const model = new Model(db);
 let awsClient = null;
 const creds = () => { const s = readSecrets(); return s.aws?.accessKeyId ? s.aws : null; };
 const getAws = () => (awsClient ||= makeAws(creds()));
 const clients = new Set();
 const notify = (type, detail) => { const msg = `data: ${JSON.stringify({ type, detail })}\n\n`; for (const res of clients) res.write(msg); };
-const engine = new Engine({ db, model, getAws, notify });
-const api = makeApi({
-  db, model, engine, getAws,
+const hub = new Hub({
+  dataDir: DATA, getAws, notify,
   setCreds: ({ region, accessKeyId, secretAccessKey }) => {
     if (!region || !accessKeyId) throw new Error('Région et identifiant de clé obligatoires.');
     const s = readSecrets();
@@ -87,7 +80,9 @@ const api = makeApi({
     return { configured: true, region: c.region, accessKeyId: c.accessKeyId, encrypted: false, storage: 'serveur' };
   },
 });
-engine.start();
+const db = hub.main;
+db.db.exec('CREATE TABLE IF NOT EXISTS web_sessions (id TEXT PRIMARY KEY, expires TEXT, created TEXT, ip TEXT)');
+hub.start();
 
 // ---------- sessions ----------
 const cookieName = 'lynechat_session';
@@ -212,10 +207,9 @@ const server = http.createServer(async (req, res) => {
       // Protection CSRF : en-tête personnalisé obligatoire (impossible à envoyer depuis un autre site sans CORS).
       if (req.headers['x-lynechat'] !== '1') return send(res, 403, { error: 'Requête refusée.' });
       const { method, args } = JSON.parse(await readBody(req));
-      const fn = api[method];
-      if (typeof fn !== 'function' || BLOCKED.has(method)) return send(res, 404, { error: `Méthode inconnue : ${method}` });
+      if (typeof method !== 'string' || BLOCKED.has(method)) return send(res, 404, { error: `Méthode inconnue : ${method}` });
       try {
-        const out = method === 'deployInfra' ? await fn((st) => notify('deploy', st)) : await fn(...revive(args || []));
+        const out = await hub.call(method, revive(args || []), { onStatus: (st) => notify('deploy', st) });
         return send(res, 200, { ok: true, result: out === undefined ? null : out });
       } catch (e) {
         return send(res, 200, { ok: false, error: e.message || String(e) });
@@ -230,6 +224,6 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, HOST, () => console.log(`Lynechat (web) sur http://${HOST}:${PORT} — données : ${DATA}`));
-const stop = () => { engine.stop(); server.close(() => process.exit(0)); setTimeout(() => process.exit(0), 3000); };
+const stop = () => { hub.stop(); server.close(() => process.exit(0)); setTimeout(() => process.exit(0), 3000); };
 process.on('SIGTERM', stop);
 process.on('SIGINT', stop);

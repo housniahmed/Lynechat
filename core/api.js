@@ -4,7 +4,7 @@ const { id, now } = require('./db');
 const { safeJson } = require('./model');
 const { IAM_POLICY } = require('./aws');
 
-function makeApi({ db, model, engine, getAws, setCreds, getCredsInfo }) {
+function makeApi({ db, gdb = db, model, engine, getAws, setCreds, getCredsInfo }) {
   const touch = (table, rid) => db.run(`UPDATE ${table} SET updated_at=? WHERE id=?`, now(), rid);
 
   return {
@@ -150,6 +150,40 @@ function makeApi({ db, model, engine, getAws, setCreds, getCredsInfo }) {
       return db.all(`SELECT s.email, s.status, s.error, s.sent_at FROM sends s WHERE s.campaign_id=? ${where} ORDER BY s.sent_at DESC LIMIT 1000`, cid);
     },
 
+    // ---------- rapports (données brutes ; la mise en page est dans report.js) ----------
+    reportData: (cid) => {
+      const c = engine.campaign(cid);
+      if (!c) throw new Error('Campagne introuvable');
+      if (c.status === 'draft' || c.status === 'scheduled') throw new Error('Le rapport est disponible une fois la campagne envoyée.');
+      const a = c.audience || {};
+      const names = (table, ids) => (ids || []).map((x) => db.get(`SELECT name FROM ${table} WHERE id=?`, x)?.name).filter(Boolean);
+      const audience = a.all ? ['Tous les abonnés'] : [...names('lists', a.lists).map((n) => `Liste : ${n}`), ...names('tags', a.tags).map((n) => `Tag : ${n}`)];
+      if (a.segmentId) audience.push(`Segment : ${db.get('SELECT name FROM segments WHERE id=?', a.segmentId)?.name || '(supprimé)'}`);
+      if (a.excludeTags?.length) audience.push(`Exclus : ${names('tags', a.excludeTags).join(', ')}`);
+      return {
+        campaign: { id: c.id, name: c.name, subject: c.subject, preheader: c.preheader, from_name: c.from_name, from_email: c.from_email, status: c.status, started_at: c.started_at, sent_at: c.sent_at, total: c.total },
+        audience, stats: model.campaignStats(cid), generatedAt: now(),
+      };
+    },
+    periodReportData: (from, to) => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(from || '') || !/^\d{4}-\d{2}-\d{2}$/.test(to || '')) throw new Error('Choisissez une date de début et de fin.');
+      if (from > to) throw new Error('La date de début doit précéder la date de fin.');
+      const start = `${from}T00:00:00.000Z`, end = `${to}T23:59:59.999Z`;
+      const camps = db.all("SELECT id, name, subject, sent_at, started_at, status FROM campaigns WHERE status IN ('sent','sending','paused') AND COALESCE(sent_at, started_at) BETWEEN ? AND ? ORDER BY COALESCE(sent_at, started_at)", start, end)
+        .map((c) => { const s = model.campaignStats(c.id); delete s.links; delete s.timeline; return { ...c, stats: s }; });
+      const sum = (k) => camps.reduce((t, c) => t + (c.stats[k] || 0), 0);
+      const totals = { campaigns: camps.length, sent: sum('sent'), delivered: sum('delivered'), opens: sum('opens'), clicks: sum('clicks'), bounces: sum('bounces'), complaints: sum('complaints'), unsubscribes: sum('unsubscribes') };
+      const base = totals.delivered || totals.sent;
+      totals.openRate = base ? totals.opens / base : 0;
+      totals.clickRate = base ? totals.clicks / base : 0;
+      totals.bounceRate = totals.sent ? totals.bounces / totals.sent : 0;
+      const autoSent = db.get("SELECT COUNT(*) n FROM sends WHERE automation_id IS NOT NULL AND status='sent' AND sent_at BETWEEN ? AND ?", start, end).n;
+      const newContacts = db.get('SELECT COUNT(*) n FROM contacts WHERE created_at BETWEEN ? AND ?', start, end).n;
+      const unsubs = db.get("SELECT COUNT(*) n FROM events WHERE type='unsubscribe' AND at BETWEEN ? AND ?", start, end).n;
+      const forms = db.all('SELECT f.name, COUNT(s.id) n FROM forms f JOIN submissions s ON s.form_id=f.id WHERE s.at BETWEEN ? AND ? GROUP BY f.id ORDER BY n DESC', start, end);
+      return { from, to, campaigns: camps, totals, automations: { sent: autoSent }, audience: { newContacts, unsubscribes: unsubs, subscribedNow: model.counts().subscribed || 0, forms }, generatedAt: now() };
+    },
+
     // ---------- automatisations ----------
     automations: () => db.all('SELECT * FROM automations ORDER BY created_at DESC').map((a) => ({
       ...a, trigger: safeJson(a.trigger_def, {}), steps: safeJson(a.steps, []),
@@ -225,13 +259,13 @@ function makeApi({ db, model, engine, getAws, setCreds, getCredsInfo }) {
       infra: engine.infra,
       company: engine.company,
       defaultFrom: db.getSetting('defaultFrom', {}),
-      sendRate: db.getSetting('sendRate', 0),
+      sendRate: gdb.getSetting('sendRate', 0),
       iamPolicy: IAM_POLICY,
     }),
     saveSettings: (s) => {
       if (s.company) db.setSetting('company', s.company);
       if (s.defaultFrom) db.setSetting('defaultFrom', s.defaultFrom);
-      if (s.sendRate != null) db.setSetting('sendRate', Number(s.sendRate) || 0);
+      if (s.sendRate != null) gdb.setSetting('sendRate', Number(s.sendRate) || 0);
     },
     saveAwsCreds: async (creds) => {
       setCreds(creds);
@@ -242,9 +276,9 @@ function makeApi({ db, model, engine, getAws, setCreds, getCredsInfo }) {
     deployInfra: async (onStatus) => {
       const aws = getAws();
       if (!aws) throw new Error('Connectez d’abord votre compte AWS.');
-      if (!db.getSetting('secret')) db.setSetting('secret', crypto.randomBytes(32).toString('base64url'));
-      const out = await aws.deploy(db.getSetting('secret'), 'lynechat', onStatus);
-      db.setSetting('infra', { ...out, region: aws.region, deployedAt: now() });
+      if (!gdb.getSetting('secret')) gdb.setSetting('secret', crypto.randomBytes(32).toString('base64url'));
+      const out = await aws.deploy(gdb.getSetting('secret'), 'lynechat', onStatus);
+      gdb.setSetting('infra', { ...out, region: aws.region, deployedAt: now() });
       engine.startPolling();
       return out;
     },

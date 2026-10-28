@@ -8,8 +8,9 @@ const REGIONS = [
 ];
 
 export async function settingsView(page) {
-  const s = await api('settings');
+  const [s, ws, wss] = await Promise.all([api('settings'), api('currentWorkspace'), api('workspaces')]);
   page.append(el('div', { class: 'page-head' }, el('div', {}, el('h1', {}, 'Paramètres'), el('div', { class: 'sub' }, 'Connexion à Amazon SES, identité d’envoi et informations légales'))));
+  if (wss.length > 1) page.append(el('div', { class: 'note info', style: { marginBottom: '14px' } }, 'Les sections 1 à 3 (compte AWS, infrastructure, domaines vérifiés) sont communes à tous vos espaces clients. La section 4 est propre à l’espace « ', el('b', { dir: 'auto' }, ws.name), ' ».'));
 
   // ---------- 1. AWS ----------
   const region = el('select', {}, ...REGIONS.map(([v, l]) => el('option', { value: v }, l)));
@@ -110,7 +111,7 @@ export async function settingsView(page) {
   };
   const rate = el('input', { type: 'number', min: 0, step: 1, value: s.sendRate || 0 });
   page.append(el('div', { class: 'card' },
-    el('h2', {}, '4. Informations légales et expéditeur par défaut'),
+    el('h2', { dir: 'auto' }, wss.length > 1 ? `4. Informations légales et expéditeur — ${ws.name}` : '4. Informations légales et expéditeur par défaut'),
     el('div', { class: 'grid2' },
       el('div', { class: 'stack' }, el('h3', {}, 'Votre entreprise'),
         f(co, 'name', 'Nom de l’entreprise', 'Affiché dans le pied de page ({{entreprise}}).'),

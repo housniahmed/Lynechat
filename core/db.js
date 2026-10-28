@@ -67,6 +67,8 @@ class Db {
     try { const r = fn(); this.db.exec('COMMIT'); return r; } catch (e) { this.db.exec('ROLLBACK'); throw e; }
   }
 
+  close() { try { this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch { /* */ } this.db.close(); }
+
   // --- réglages ---
   getSetting(k, def = null) { const r = this.get('SELECT value FROM settings WHERE key=?', k); return r ? JSON.parse(r.value) : def; }
   setSetting(k, v) { this.run('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', k, JSON.stringify(v)); }

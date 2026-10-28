@@ -141,3 +141,47 @@ export function svgBars(data, { height = 140, color = '#1f6f5c', label = (d) => 
   }).join('')}</svg>`;
   return el('div', { html: svg });
 }
+
+/** Rapport PDF. Bureau : PDF A4 + « Enregistrer sous ». Navigateur : page imprimable (Imprimer → Enregistrer en PDF). */
+export async function exportReport(kind, arg) {
+  if (window.lynechat.exportReport) {
+    try {
+      const f = await window.lynechat.exportReport(kind, arg);
+      if (f) toast('Rapport PDF enregistré.');
+      return f;
+    } catch (e) { throw new Error(String(e?.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')); }
+  }
+  const { html } = await api('reportHtml', kind, arg);
+  const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
+  const w = window.open(url, '_blank');
+  if (!w) { URL.revokeObjectURL(url); throw new Error('Autorisez l’ouverture de fenêtres pour ce site, puis réessayez.'); }
+  w.addEventListener('load', () => { setTimeout(() => w.print(), 300); });
+  setTimeout(() => URL.revokeObjectURL(url), 120000);
+  toast('Choisissez « Enregistrer au format PDF » dans la fenêtre d’impression.', '', 6000);
+  return null;
+}
+
+/** Lit une image choisie par l'utilisateur et la réduit (côté max. en px) ; renvoie une data URL PNG. */
+export function pickLogo(max = 360) {
+  return new Promise((resolve) => {
+    const input = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif' });
+    input.addEventListener('change', () => {
+      const f = input.files?.[0];
+      if (!f) return resolve(null);
+      const img = new Image();
+      const u = URL.createObjectURL(f);
+      img.onload = () => {
+        const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(img.naturalWidth * k));
+        c.height = Math.max(1, Math.round(img.naturalHeight * k));
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(u);
+        resolve(c.toDataURL('image/png'));
+      };
+      img.onerror = () => { URL.revokeObjectURL(u); toast('Image illisible.', 'err'); resolve(null); };
+      img.src = u;
+    });
+    input.click();
+  });
+}
